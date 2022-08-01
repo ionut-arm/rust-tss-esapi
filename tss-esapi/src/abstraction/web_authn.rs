@@ -7,7 +7,8 @@ use crate::{
         SignatureScheme, SymmetricDefinition,
     },
     traits::Marshall,
-    Context, Result,
+    Context, Error, Result,
+    WrapperErrorKind::InternalError,
 };
 use ciborium::cbor;
 use std::convert::TryInto;
@@ -29,7 +30,14 @@ impl TpmStatement {
         nonce: Vec<u8>,
     ) -> Result<TpmStatement> {
         let (public_area, _, _) = context.read_public(object)?;
-        let (session_1, _, _) = context.sessions();
+        let session_1 = context.start_auth_session(
+            None,
+            None,
+            None,
+            SessionType::Hmac,
+            SymmetricDefinition::AES_128_CFB,
+            HashingAlgorithm::Sha256,
+        )?;
         let session_2 = context.start_auth_session(
             None,
             None,
@@ -67,40 +75,33 @@ impl TpmStatement {
         self.x509_chain.append(&mut certificates);
     }
 
-    pub fn convert_to_tpmstmtformat_and_encode(&self) -> Vec<u8> {
-        let cert_info_value: Vec<u8>;
-        let sig_value: Vec<u8>;
-        let pub_area_value: Vec<u8>;
-        match self.signature.clone().marshall() {
-            Ok(sig) => sig_value = sig,
-            Err(_) => panic!("tried to convert Err type"),
-        };
-        match self.public_area.clone().marshall() {
-            Ok(pub_area) => pub_area_value = pub_area,
-            Err(_) => panic!("tried to convert Err type"),
-        };
-        match self.attestation.clone().marshall() {
-            Ok(cert_info) => cert_info_value = cert_info,
-            Err(_) => panic!("tried to convert Err type"),
-        };
-        let mut alg_value = -1;
-        if let SignatureScheme::RsaSsa { hash_scheme: _ } = self.algorithm {
-            alg_value = -65535
-        };
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let sig = self.signature.clone().marshall()?;
+        let pub_area = self.public_area.clone().marshall()?;
+        let cert_info = self.attestation.clone().marshall()?;
+        let alg = TpmStatement::get_alg_value(self.algorithm);
         match cbor!({
             //TODO put brakets around x5c and alg
             "x5c" => self.x509_chain.clone(),
-            "alg" => alg_value,
-            "sig" => sig_value,
-            "pubArea" => pub_area_value,
-            "certInfo" => cert_info_value,
+            "alg" => alg,
+            "sig" => sig,
+            "pubArea" => pub_area,
+            "certInfo" => cert_info,
         })
         .unwrap()
         .as_bytes()
         {
-            Some(value) => value.clone(),
-            None => panic!("tried to convert None type"),
+            Some(value) => Ok(value.clone()),
+            None => Err(Error::local_error(InternalError)),
         }
+    }
+
+    fn get_alg_value(algorithm: SignatureScheme) -> i32 {
+        let mut alg_value = -1;
+        if let SignatureScheme::RsaSsa { hash_scheme: _ } = algorithm {
+            alg_value = -65535
+        };
+        alg_value
     }
 }
 
@@ -114,7 +115,14 @@ pub struct TpmPlatStmt {
 
 impl TpmPlatStmt {
     pub fn new(context: &mut Context, key: KeyHandle, nonce: Vec<u8>) -> Result<TpmPlatStmt> {
-        let (session_1, _, _) = context.sessions();
+        let session_1 = context.start_auth_session(
+            None,
+            None,
+            None,
+            SessionType::Hmac,
+            SymmetricDefinition::AES_128_CFB,
+            HashingAlgorithm::Sha256,
+        )?;
         let session_2 = context.start_auth_session(
             None,
             None,
@@ -155,33 +163,30 @@ impl TpmPlatStmt {
         self.x509_chain.append(&mut certificates);
     }
 
-    pub fn convert_to_tpmplatstmtformat_and_encode(&self) -> Vec<u8> {
-        let cert_info_value: Vec<u8>;
-        let sig_value: Vec<u8>;
-        match self.signature.clone().marshall() {
-            Ok(sig) => sig_value = sig,
-            Err(_) => panic!("tried to convert Err type"),
-        };
-        match self.attestation.clone().marshall() {
-            Ok(cert_info) => cert_info_value = cert_info,
-            Err(_) => panic!("tried to convert Err type"),
-        };
-        let mut alg_value = -1;
-        if let SignatureScheme::RsaSsa { hash_scheme: _ } = self.algorithm {
-            alg_value = -65535
-        };
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let sig = self.signature.clone().marshall()?;
+        let cert_info = self.attestation.clone().marshall()?;
+        let alg = TpmPlatStmt::get_alg_value(self.algorithm);
         match cbor!({
             //TODO put brakets around x5c and alg
             "x5c" => self.x509_chain.clone(),
-            "alg" => alg_value,
-            "sig" => sig_value,
-            "certInfo" => cert_info_value,
+            "alg" => alg,
+            "sig" => sig,
+            "certInfo" => cert_info,
         })
         .unwrap()
         .as_bytes()
         {
-            Some(value) => value.clone(),
-            None => panic!("tried to convert None type"),
+            Some(value) => Ok(value.clone()),
+            None => Err(Error::local_error(InternalError)),
         }
+    }
+
+    fn get_alg_value(algorithm: SignatureScheme) -> i32 {
+        let mut alg_value = -1;
+        if let SignatureScheme::RsaSsa { hash_scheme: _ } = algorithm {
+            alg_value = -65535
+        };
+        alg_value
     }
 }
