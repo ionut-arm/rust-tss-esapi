@@ -192,7 +192,9 @@ impl TransientKeyContext {
     pub fn quote(&mut self, key: ObjectWrapper, nonce: Vec<u8>) -> Result<web_authn::TpmPlatStmt> {
         let key_handle = self.load_key(key.params, key.material, key.auth)?;
 
-        web_authn::TpmPlatStmt::new(&mut self.context, key_handle, nonce)
+        let statement = web_authn::TpmPlatStmt::new(&mut self.context, key_handle, nonce);
+        self.context.flush_context(key_handle.into())?;
+        statement
     }
 
     pub fn certify(
@@ -204,7 +206,11 @@ impl TransientKeyContext {
         let object_handle = self.load_key(object.params, object.material, object.auth)?;
         let key_handle = self.load_key(key.params, key.material, key.auth)?;
 
-        web_authn::TpmStatement::new(&mut self.context, object_handle, key_handle, nonce)
+        let statement =
+            web_authn::TpmStatement::new(&mut self.context, object_handle, key_handle, nonce);
+        self.context.flush_context(key_handle.into())?;
+        self.context.flush_context(object_handle.into())?;
+        statement
     }
 }
 
