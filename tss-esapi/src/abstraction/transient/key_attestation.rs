@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::{ObjectWrapper, TransientKeyContext};
 use crate::{
-    abstraction::ek,
+    abstraction::{ek, web_authn},
     constants::SessionType,
     handles::{AuthHandle, KeyHandle, SessionHandle},
     interface_types::{
@@ -105,7 +105,7 @@ impl TransientKeyContext {
         let secret = EncryptedSecret::try_from(secret)?;
         let object_handle = self.load_key(object.params, object.material, object.auth)?;
         let (key_handle, session_2) = match key {
-            Some(key) => self.prepare_key_activate_cred(key),
+            Some(key) => self.prepare_attesting_key(key),
             None => self.prepare_ek_activate_cred(),
         }
         .or_else(|e| {
@@ -166,7 +166,7 @@ impl TransientKeyContext {
     }
 
     // Load key and create a HMAC session for it
-    fn prepare_key_activate_cred(
+    fn prepare_attesting_key(
         &mut self,
         key: ObjectWrapper,
     ) -> Result<(KeyHandle, Option<AuthSession>)> {
@@ -187,6 +187,24 @@ impl TransientKeyContext {
                 })?,
             session,
         ))
+    }
+
+    pub fn quote(&mut self, key: ObjectWrapper, nonce: Vec<u8>) -> Result<web_authn::TpmPlatStmt> {
+        let key_handle = self.load_key(key.params, key.material, key.auth)?;
+
+        web_authn::TpmPlatStmt::new(&mut self.context, key_handle, nonce)
+    }
+
+    pub fn certify(
+        &mut self,
+        object: ObjectWrapper,
+        key: ObjectWrapper,
+        nonce: Vec<u8>,
+    ) -> Result<web_authn::TpmStatement> {
+        let object_handle = self.load_key(object.params, object.material, object.auth)?;
+        let key_handle = self.load_key(key.params, key.material, key.auth)?;
+
+        web_authn::TpmStatement::new(&mut self.context, object_handle, key_handle, nonce)
     }
 }
 
