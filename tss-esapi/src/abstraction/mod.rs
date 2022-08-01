@@ -8,6 +8,7 @@ pub mod nv;
 pub mod pcr;
 pub mod public;
 pub mod transient;
+pub mod web_authn;
 
 use crate::{attributes::ObjectAttributesBuilder, structures::PublicBuilder};
 
