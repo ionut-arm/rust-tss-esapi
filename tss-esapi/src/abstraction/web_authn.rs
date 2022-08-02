@@ -87,12 +87,12 @@ impl TpmStatement {
             "sig" => sig,
             "pubArea" => pub_area,
             "certInfo" => cert_info,
-        })
-        .unwrap()
-        .as_bytes()
-        {
-            Some(value) => Ok(value.clone()),
-            None => Err(Error::local_error(InternalError)),
+        }) {
+            Ok(value) => match value.as_bytes() {
+                Some(bytes) => Ok(bytes.clone()),
+                None => Err(Error::local_error(InternalError)),
+            },
+            Err(_) => Err(Error::local_error(InternalError)),
         }
     }
 
@@ -173,12 +173,12 @@ impl TpmPlatStmt {
             "alg" => alg,
             "sig" => sig,
             "certInfo" => cert_info,
-        })
-        .unwrap()
-        .as_bytes()
-        {
-            Some(value) => Ok(value.clone()),
-            None => Err(Error::local_error(InternalError)),
+        }) {
+            Ok(value) => match value.as_bytes() {
+                Some(bytes) => Ok(bytes.clone()),
+                None => Err(Error::local_error(InternalError)),
+            },
+            Err(_) => Err(Error::local_error(InternalError)),
         }
     }
 
