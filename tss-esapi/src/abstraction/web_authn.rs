@@ -121,20 +121,12 @@ impl TpmPlatStmt {
             SymmetricDefinition::AES_128_CFB,
             HashingAlgorithm::Sha256,
         )?;
-        let session_2 = context.start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Hmac,
-            SymmetricDefinition::AES_128_CFB,
-            HashingAlgorithm::Sha256,
-        )?;
         let signing_scheme = SignatureScheme::RsaSsa {
             hash_scheme: HashScheme::new(HashingAlgorithm::Sha256),
         };
         let selection_list = PcrSelectionListBuilder::new();
         let (attestation, signature) = context
-            .execute_with_sessions((session_1, session_2, None), |ctx| {
+            .execute_with_sessions((session_1, None, None), |ctx| {
                 ctx.quote(
                     key,
                     nonce.try_into()?,
@@ -144,11 +136,9 @@ impl TpmPlatStmt {
             })
             .or_else(|e| {
                 context.flush_context(SessionHandle::from(session_1).into())?;
-                context.flush_context(SessionHandle::from(session_2).into())?;
                 Err(e)
             })?;
         context.flush_context(SessionHandle::from(session_1).into())?;
-        context.flush_context(SessionHandle::from(session_2).into())?;
         Ok(TpmPlatStmt {
             attestation,
             signature,
