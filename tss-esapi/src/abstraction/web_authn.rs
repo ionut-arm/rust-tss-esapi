@@ -54,13 +54,11 @@ impl TpmStatement {
                 ctx.certify(object.into(), key, nonce.try_into()?, signing_scheme)
             })
             .or_else(|e| {
-                context.flush_context(object.into())?;
-                context.flush_context(key.into())?;
+                context.flush_context(SessionHandle::from(session_1).into())?;
                 context.flush_context(SessionHandle::from(session_2).into())?;
                 Err(e)
             })?;
-        context.flush_context(object.into())?;
-        context.flush_context(key.into())?;
+        context.flush_context(SessionHandle::from(session_1).into())?;
         context.flush_context(SessionHandle::from(session_2).into())?;
         Ok(TpmStatement {
             attestation,
@@ -145,11 +143,11 @@ impl TpmPlatStmt {
                 )
             })
             .or_else(|e| {
-                context.flush_context(key.into())?;
+                context.flush_context(SessionHandle::from(session_1).into())?;
                 context.flush_context(SessionHandle::from(session_2).into())?;
                 Err(e)
             })?;
-        context.flush_context(key.into())?;
+        context.flush_context(SessionHandle::from(session_1).into())?;
         context.flush_context(SessionHandle::from(session_2).into())?;
         Ok(TpmPlatStmt {
             attestation,
