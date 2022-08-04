@@ -10,7 +10,7 @@ use crate::{
     Context, Error, Result,
     WrapperErrorKind::InternalError,
 };
-use ciborium::cbor;
+use ciborium::{cbor, ser::into_writer};
 use std::convert::TryInto;
 
 #[derive(Debug)]
@@ -78,6 +78,7 @@ impl TpmStatement {
         let pub_area = self.public_area.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
         let alg = TpmStatement::get_alg_value(self.algorithm);
+        let mut encoded_certificate = vec![];
         match cbor!({
             //TODO put brakets around x5c and alg
             "x5c" => self.x509_chain.clone(),
@@ -86,9 +87,9 @@ impl TpmStatement {
             "pubArea" => pub_area,
             "certInfo" => cert_info,
         }) {
-            Ok(value) => match value.as_bytes() {
-                Some(bytes) => Ok(bytes.clone()),
-                None => Err(Error::local_error(InternalError)),
+            Ok(value) => match into_writer(&value, &mut encoded_certificate) {
+                Ok(_) => Ok(encoded_certificate),
+                Err(_) => Err(Error::local_error(InternalError)),
             },
             Err(_) => Err(Error::local_error(InternalError)),
         }
@@ -155,6 +156,7 @@ impl TpmPlatStmt {
         let sig = self.signature.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
         let alg = TpmPlatStmt::get_alg_value(self.algorithm);
+        let mut encoded_certificate = vec![];
         match cbor!({
             //TODO put brakets around x5c and alg
             "x5c" => self.x509_chain.clone(),
@@ -162,9 +164,9 @@ impl TpmPlatStmt {
             "sig" => sig,
             "certInfo" => cert_info,
         }) {
-            Ok(value) => match value.as_bytes() {
-                Some(bytes) => Ok(bytes.clone()),
-                None => Err(Error::local_error(InternalError)),
+            Ok(value) => match into_writer(&value, &mut encoded_certificate) {
+                Ok(_) => Ok(encoded_certificate),
+                Err(_) => Err(Error::local_error(InternalError)),
             },
             Err(_) => Err(Error::local_error(InternalError)),
         }
