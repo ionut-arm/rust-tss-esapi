@@ -9,7 +9,7 @@ use crate::{
         algorithm::{AsymmetricAlgorithm, HashingAlgorithm},
         session_handles::{AuthSession, PolicySession},
     },
-    structures::{EncryptedSecret, IdObject, SymmetricDefinition},
+    structures::{EncryptedSecret, IdObject, PcrSelectionList, SymmetricDefinition},
     traits::Marshall,
     utils::PublicKey,
     Result,
@@ -189,10 +189,16 @@ impl TransientKeyContext {
         ))
     }
 
-    pub fn quote(&mut self, key: ObjectWrapper, nonce: Vec<u8>) -> Result<web_authn::TpmPlatStmt> {
+    pub fn quote(
+        &mut self,
+        key: ObjectWrapper,
+        nonce: Vec<u8>,
+        selection_list: PcrSelectionList,
+    ) -> Result<web_authn::TpmPlatStmt> {
         let key_handle = self.load_key(key.params, key.material, key.auth)?;
 
-        let statement = web_authn::TpmPlatStmt::new(&mut self.context, key_handle, nonce);
+        let statement =
+            web_authn::TpmPlatStmt::new(&mut self.context, key_handle, nonce, selection_list);
         self.context.flush_context(key_handle.into())?;
         statement
     }
