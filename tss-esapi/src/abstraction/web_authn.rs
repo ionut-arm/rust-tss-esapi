@@ -3,8 +3,8 @@ use crate::{
     handles::{KeyHandle, SessionHandle},
     interface_types::algorithm::HashingAlgorithm,
     structures::{
-        pcr_selection_list::PcrSelectionListBuilder, Attest, HashScheme, Public, Signature,
-        SignatureScheme, SymmetricDefinition,
+        Attest, HashScheme, PcrSelectionList, Public, Signature, SignatureScheme,
+        SymmetricDefinition,
     },
     traits::Marshall,
     Context, Error, Result,
@@ -113,7 +113,12 @@ pub struct TpmPlatStmt {
 }
 
 impl TpmPlatStmt {
-    pub fn new(context: &mut Context, key: KeyHandle, nonce: Vec<u8>) -> Result<TpmPlatStmt> {
+    pub fn new(
+        context: &mut Context,
+        key: KeyHandle,
+        nonce: Vec<u8>,
+        selection_list: PcrSelectionList,
+    ) -> Result<TpmPlatStmt> {
         let session_1 = context.start_auth_session(
             None,
             None,
@@ -125,15 +130,9 @@ impl TpmPlatStmt {
         let signing_scheme = SignatureScheme::RsaSsa {
             hash_scheme: HashScheme::new(HashingAlgorithm::Sha256),
         };
-        let selection_list = PcrSelectionListBuilder::new();
         let (attestation, signature) = context
             .execute_with_sessions((session_1, None, None), |ctx| {
-                ctx.quote(
-                    key,
-                    nonce.try_into()?,
-                    signing_scheme,
-                    selection_list.build()?,
-                )
+                ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
             })
             .or_else(|e| {
                 context.flush_context(SessionHandle::from(session_1).into())?;
