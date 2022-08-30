@@ -1,10 +1,10 @@
 use crate::{
     constants::SessionType,
     handles::{KeyHandle, SessionHandle},
-    interface_types::algorithm::{EccSchemeAlgorithm, HashingAlgorithm, RsaSchemeAlgorithm},
+    interface_types::algorithm::HashingAlgorithm,
     structures::{
-        Attest, EccScheme, HashScheme, PcrSelectionList, Public, RsaScheme, Signature,
-        SignatureScheme, SymmetricDefinition,
+        Attest, EccScheme, PcrSelectionList, Public, RsaScheme, Signature, SignatureScheme,
+        SymmetricDefinition,
     },
     traits::Marshall,
     Context, Error, Result,
@@ -47,7 +47,7 @@ impl TpmStatement {
             HashingAlgorithm::Sha256,
         )?;
         let (key_public_area, _, _) = context.read_public(key)?;
-        let signing_scheme = TpmStatement::get_sig_scheme(key_public_area)?;
+        let signing_scheme = get_sig_scheme(key_public_area)?;
         let (attestation, signature) = context
             .execute_with_sessions((session_1, session_2, None), |ctx| {
                 ctx.certify(object.into(), key, nonce.try_into()?, signing_scheme)
@@ -100,21 +100,6 @@ impl TpmStatement {
             _ => -1,
         }
     }
-
-    fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
-        match public_area {
-            Public::Rsa { parameters, .. } => match parameters.rsa_scheme() {
-                RsaScheme::RsaSsa(hash_scheme) => Ok(SignatureScheme::RsaSsa { hash_scheme }),
-                RsaScheme::RsaPss(hash_scheme) => Ok(SignatureScheme::RsaPss { hash_scheme }),
-                _ => Err(Error::local_error(InternalError)),
-            },
-            Public::Ecc { parameters, .. } => match parameters.ecc_scheme() {
-                EccScheme::EcDsa(hash_scheme) => Ok(SignatureScheme::EcDsa { hash_scheme }),
-                _ => Err(Error::local_error(InternalError)),
-            },
-            _ => Err(Error::local_error(InternalError)),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -141,7 +126,7 @@ impl TpmPlatStmt {
             HashingAlgorithm::Sha256,
         )?;
         let (key_public_area, _, _) = context.read_public(key)?;
-        let signing_scheme = TpmPlatStmt::get_sig_scheme(key_public_area)?;
+        let signing_scheme = get_sig_scheme(key_public_area)?;
         let (attestation, signature) = context
             .execute_with_sessions((session_1, None, None), |ctx| {
                 ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
@@ -189,36 +174,19 @@ impl TpmPlatStmt {
             _ => -1,
         }
     }
+}
 
-    fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
-        match public_area {
-            Public::Rsa {
-                name_hashing_algorithm,
-                parameters,
-                ..
-            } => match parameters.rsa_scheme().algorithm() {
-                RsaSchemeAlgorithm::RsaSsa => Ok(SignatureScheme::RsaSsa {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
-                RsaSchemeAlgorithm::RsaPss => Ok(SignatureScheme::RsaPss {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
-                _ => Err(Error::local_error(InternalError)),
-            },
-            Public::Ecc {
-                name_hashing_algorithm,
-                parameters,
-                ..
-            } => match parameters.ecc_scheme().algorithm() {
-                EccSchemeAlgorithm::EcDsa => Ok(SignatureScheme::EcDsa {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
-                EccSchemeAlgorithm::EcSchnorr => Ok(SignatureScheme::EcSchnorr {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
-                _ => Err(Error::local_error(InternalError)),
-            },
+fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
+    match public_area {
+        Public::Rsa { parameters, .. } => match parameters.rsa_scheme() {
+            RsaScheme::RsaSsa(hash_scheme) => Ok(SignatureScheme::RsaSsa { hash_scheme }),
+            RsaScheme::RsaPss(hash_scheme) => Ok(SignatureScheme::RsaPss { hash_scheme }),
             _ => Err(Error::local_error(InternalError)),
-        }
+        },
+        Public::Ecc { parameters, .. } => match parameters.ecc_scheme() {
+            EccScheme::EcDsa(hash_scheme) => Ok(SignatureScheme::EcDsa { hash_scheme }),
+            _ => Err(Error::local_error(InternalError)),
+        },
+        _ => Err(Error::local_error(InternalError)),
     }
 }
