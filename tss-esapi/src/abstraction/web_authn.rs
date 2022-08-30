@@ -3,8 +3,8 @@ use crate::{
     handles::{KeyHandle, SessionHandle},
     interface_types::algorithm::{EccSchemeAlgorithm, HashingAlgorithm, RsaSchemeAlgorithm},
     structures::{
-        Attest, HashScheme, PcrSelectionList, Public, Signature, SignatureScheme,
-        SymmetricDefinition,
+        Attest, EccScheme, HashScheme, PcrSelectionList, Public, RsaScheme, Signature,
+        SignatureScheme, SymmetricDefinition,
     },
     traits::Marshall,
     Context, Error, Result,
@@ -103,30 +103,13 @@ impl TpmStatement {
 
     fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
         match public_area {
-            Public::Rsa {
-                name_hashing_algorithm,
-                parameters,
-                ..
-            } => match parameters.rsa_scheme().algorithm() {
-                RsaSchemeAlgorithm::RsaSsa => Ok(SignatureScheme::RsaSsa {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
-                RsaSchemeAlgorithm::RsaPss => Ok(SignatureScheme::RsaPss {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
+            Public::Rsa { parameters, .. } => match parameters.rsa_scheme() {
+                RsaScheme::RsaSsa(hash_scheme) => Ok(SignatureScheme::RsaSsa { hash_scheme }),
+                RsaScheme::RsaPss(hash_scheme) => Ok(SignatureScheme::RsaPss { hash_scheme }),
                 _ => Err(Error::local_error(InternalError)),
             },
-            Public::Ecc {
-                name_hashing_algorithm,
-                parameters,
-                ..
-            } => match parameters.ecc_scheme().algorithm() {
-                EccSchemeAlgorithm::EcDsa => Ok(SignatureScheme::EcDsa {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
-                EccSchemeAlgorithm::EcSchnorr => Ok(SignatureScheme::EcSchnorr {
-                    hash_scheme: HashScheme::new(name_hashing_algorithm),
-                }),
+            Public::Ecc { parameters, .. } => match parameters.ecc_scheme() {
+                EccScheme::EcDsa(hash_scheme) => Ok(SignatureScheme::EcDsa { hash_scheme }),
                 _ => Err(Error::local_error(InternalError)),
             },
             _ => Err(Error::local_error(InternalError)),
