@@ -1,7 +1,7 @@
 use crate::{
     constants::SessionType,
     handles::{KeyHandle, SessionHandle},
-    interface_types::algorithm::HashingAlgorithm,
+    interface_types::algorithm::{EccSchemeAlgorithm, HashingAlgorithm, RsaSchemeAlgorithm},
     structures::{
         Attest, HashScheme, PcrSelectionList, Public, Signature, SignatureScheme,
         SymmetricDefinition,
@@ -46,9 +46,8 @@ impl TpmStatement {
             SymmetricDefinition::AES_128_CFB,
             HashingAlgorithm::Sha256,
         )?;
-        let signing_scheme = SignatureScheme::RsaSsa {
-            hash_scheme: HashScheme::new(HashingAlgorithm::Sha256),
-        };
+        let (key_public_area, _, _) = context.read_public(key)?;
+        let signing_scheme = TpmStatement::get_sig_scheme(key_public_area)?;
         let (attestation, signature) = context
             .execute_with_sessions((session_1, session_2, None), |ctx| {
                 ctx.certify(object.into(), key, nonce.try_into()?, signing_scheme)
@@ -78,7 +77,7 @@ impl TpmStatement {
         let pub_area = self.public_area.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
         let alg = TpmStatement::get_alg_value(self.algorithm);
-        let mut encoded_certificate = vec![];
+        let mut encoded_token = vec![];
         match cbor!({
             //TODO put brakets around x5c and alg
             "x5c" => self.x509_chain.clone(),
@@ -87,8 +86,8 @@ impl TpmStatement {
             "pubArea" => pub_area,
             "certInfo" => cert_info,
         }) {
-            Ok(value) => match into_writer(&value, &mut encoded_certificate) {
-                Ok(_) => Ok(encoded_certificate),
+            Ok(value) => match into_writer(&value, &mut encoded_token) {
+                Ok(_) => Ok(encoded_token),
                 Err(_) => Err(Error::local_error(InternalError)),
             },
             Err(_) => Err(Error::local_error(InternalError)),
@@ -96,11 +95,42 @@ impl TpmStatement {
     }
 
     fn get_alg_value(algorithm: SignatureScheme) -> i32 {
-        let mut alg_value = -1;
-        if let SignatureScheme::RsaSsa { hash_scheme: _ } = algorithm {
-            alg_value = -65535
-        };
-        alg_value
+        match algorithm {
+            SignatureScheme::RsaSsa { .. } => -65535,
+            _ => -1,
+        }
+    }
+
+    fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
+        match public_area {
+            Public::Rsa {
+                name_hashing_algorithm,
+                parameters,
+                ..
+            } => match parameters.rsa_scheme().algorithm() {
+                RsaSchemeAlgorithm::RsaSsa => Ok(SignatureScheme::RsaSsa {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                RsaSchemeAlgorithm::RsaPss => Ok(SignatureScheme::RsaPss {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                _ => Err(Error::local_error(InternalError)),
+            },
+            Public::Ecc {
+                name_hashing_algorithm,
+                parameters,
+                ..
+            } => match parameters.ecc_scheme().algorithm() {
+                EccSchemeAlgorithm::EcDsa => Ok(SignatureScheme::EcDsa {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                EccSchemeAlgorithm::EcSchnorr => Ok(SignatureScheme::EcSchnorr {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                _ => Err(Error::local_error(InternalError)),
+            },
+            _ => Err(Error::local_error(InternalError)),
+        }
     }
 }
 
@@ -127,9 +157,8 @@ impl TpmPlatStmt {
             SymmetricDefinition::AES_128_CFB,
             HashingAlgorithm::Sha256,
         )?;
-        let signing_scheme = SignatureScheme::RsaSsa {
-            hash_scheme: HashScheme::new(HashingAlgorithm::Sha256),
-        };
+        let (key_public_area, _, _) = context.read_public(key)?;
+        let signing_scheme = TpmPlatStmt::get_sig_scheme(key_public_area)?;
         let (attestation, signature) = context
             .execute_with_sessions((session_1, None, None), |ctx| {
                 ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
@@ -155,7 +184,7 @@ impl TpmPlatStmt {
         let sig = self.signature.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
         let alg = TpmPlatStmt::get_alg_value(self.algorithm);
-        let mut encoded_certificate = vec![];
+        let mut encoded_token = vec![];
         match cbor!({
             //TODO put brakets around x5c and alg
             "x5c" => self.x509_chain.clone(),
@@ -163,8 +192,8 @@ impl TpmPlatStmt {
             "sig" => sig,
             "certInfo" => cert_info,
         }) {
-            Ok(value) => match into_writer(&value, &mut encoded_certificate) {
-                Ok(_) => Ok(encoded_certificate),
+            Ok(value) => match into_writer(&value, &mut encoded_token) {
+                Ok(_) => Ok(encoded_token),
                 Err(_) => Err(Error::local_error(InternalError)),
             },
             Err(_) => Err(Error::local_error(InternalError)),
@@ -172,10 +201,41 @@ impl TpmPlatStmt {
     }
 
     fn get_alg_value(algorithm: SignatureScheme) -> i32 {
-        let mut alg_value = -1;
-        if let SignatureScheme::RsaSsa { hash_scheme: _ } = algorithm {
-            alg_value = -65535
-        };
-        alg_value
+        match algorithm {
+            SignatureScheme::RsaSsa { .. } => -65535,
+            _ => -1,
+        }
+    }
+
+    fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
+        match public_area {
+            Public::Rsa {
+                name_hashing_algorithm,
+                parameters,
+                ..
+            } => match parameters.rsa_scheme().algorithm() {
+                RsaSchemeAlgorithm::RsaSsa => Ok(SignatureScheme::RsaSsa {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                RsaSchemeAlgorithm::RsaPss => Ok(SignatureScheme::RsaPss {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                _ => Err(Error::local_error(InternalError)),
+            },
+            Public::Ecc {
+                name_hashing_algorithm,
+                parameters,
+                ..
+            } => match parameters.ecc_scheme().algorithm() {
+                EccSchemeAlgorithm::EcDsa => Ok(SignatureScheme::EcDsa {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                EccSchemeAlgorithm::EcSchnorr => Ok(SignatureScheme::EcSchnorr {
+                    hash_scheme: HashScheme::new(name_hashing_algorithm),
+                }),
+                _ => Err(Error::local_error(InternalError)),
+            },
+            _ => Err(Error::local_error(InternalError)),
+        }
     }
 }
