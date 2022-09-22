@@ -76,7 +76,7 @@ impl TpmStatement {
         let sig = self.signature.clone().marshall()?;
         let pub_area = self.public_area.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
-        let alg = TpmStatement::get_alg_value(self.algorithm);
+        let alg = get_alg_value(self.algorithm);
         let mut encoded_token = vec![];
         match cbor!({
             //TODO put brakets around x5c and alg
@@ -91,13 +91,6 @@ impl TpmStatement {
                 Err(_) => Err(Error::local_error(InternalError)),
             },
             Err(_) => Err(Error::local_error(InternalError)),
-        }
-    }
-
-    fn get_alg_value(algorithm: SignatureScheme) -> i32 {
-        match algorithm {
-            SignatureScheme::RsaSsa { .. } => -65535,
-            _ => -1,
         }
     }
 }
@@ -117,7 +110,7 @@ impl TpmPlatStmt {
         nonce: Vec<u8>,
         selection_list: PcrSelectionList,
     ) -> Result<TpmPlatStmt> {
-        let session_1 = context.start_auth_session(
+        let session = context.start_auth_session(
             None,
             None,
             None,
@@ -128,14 +121,14 @@ impl TpmPlatStmt {
         let (key_public_area, _, _) = context.read_public(key)?;
         let signing_scheme = get_sig_scheme(key_public_area)?;
         let (attestation, signature) = context
-            .execute_with_sessions((session_1, None, None), |ctx| {
+            .execute_with_session(session, |ctx| {
                 ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
             })
             .or_else(|e| {
-                context.flush_context(SessionHandle::from(session_1).into())?;
+                context.flush_context(SessionHandle::from(session).into())?;
                 Err(e)
             })?;
-        context.flush_context(SessionHandle::from(session_1).into())?;
+        context.flush_context(SessionHandle::from(session).into())?;
         Ok(TpmPlatStmt {
             attestation,
             signature,
@@ -151,7 +144,7 @@ impl TpmPlatStmt {
     pub fn encode(&self) -> Result<Vec<u8>> {
         let sig = self.signature.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
-        let alg = TpmPlatStmt::get_alg_value(self.algorithm);
+        let alg = get_alg_value(self.algorithm);
         let mut encoded_token = vec![];
         match cbor!({
             //TODO put brakets around x5c and alg
@@ -165,13 +158,6 @@ impl TpmPlatStmt {
                 Err(_) => Err(Error::local_error(InternalError)),
             },
             Err(_) => Err(Error::local_error(InternalError)),
-        }
-    }
-
-    fn get_alg_value(algorithm: SignatureScheme) -> i32 {
-        match algorithm {
-            SignatureScheme::RsaSsa { .. } => -65535,
-            _ => -1,
         }
     }
 }
@@ -188,5 +174,12 @@ fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
             _ => Err(Error::local_error(InternalError)),
         },
         _ => Err(Error::local_error(InternalError)),
+    }
+}
+
+fn get_alg_value(algorithm: SignatureScheme) -> i32 {
+    match algorithm {
+        SignatureScheme::RsaSsa { .. } => -65535,
+        _ => -1,
     }
 }

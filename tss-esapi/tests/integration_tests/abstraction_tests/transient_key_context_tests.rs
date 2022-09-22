@@ -15,14 +15,16 @@ use tss_esapi::{
         resource_handles::Hierarchy,
     },
     structures::{
-        Auth, CreateKeyResult, Digest, EccScheme, Public, PublicKeyRsa, RsaExponent, RsaScheme,
-        RsaSignature, Signature, SymmetricDefinitionObject,
+        Attest, Auth, CreateKeyResult, Digest, EccScheme, PcrSelectionListBuilder, PcrSlot, Public,
+        PublicKeyRsa, RsaExponent, RsaScheme, RsaSignature, Signature, SymmetricDefinitionObject,
     },
+    traits::UnMarshall,
     utils::{create_restricted_decryption_rsa_public, PublicKey},
     Error, ReturnCode, TransientKeyContext, WrapperErrorKind as ErrorKind,
 };
 
 use crate::common::create_tcti;
+use ciborium::{de::from_reader, value::Value};
 
 const HASH: [u8; 32] = [
     0x69, 0x3E, 0xDB, 0x1B, 0x22, 0x79, 0x03, 0xF4, 0xC0, 0xBF, 0xD6, 0x91, 0x76, 0x37, 0x84, 0xA2,
@@ -683,6 +685,144 @@ fn activate_credential() {
         .unwrap();
 
     assert_eq!(cred_back, credential);
+}
+
+#[test]
+fn certify_and_quote() {
+    let mut ctx = create_ctx();
+    let params = KeyParams::Rsa {
+        size: RsaKeyBits::Rsa2048,
+        scheme: RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
+            .expect("Failed to create RSA scheme"),
+        pub_exponent: RsaExponent::default(),
+    };
+    let (material, auth) = ctx.create_key(params, 16).unwrap();
+    let attesting_key = ObjectWrapper {
+        material,
+        params,
+        auth,
+    };
+    let (material, auth) = ctx.create_key(params, 16).unwrap();
+    let attested_key = ObjectWrapper {
+        material,
+        params,
+        auth,
+    };
+    let nonce = vec![0x88, 16];
+    let selection_list = PcrSelectionListBuilder::new()
+        .with_selection(
+            HashingAlgorithm::Sha256,
+            &[
+                PcrSlot::Slot0,
+                PcrSlot::Slot1,
+                PcrSlot::Slot2,
+                PcrSlot::Slot3,
+                PcrSlot::Slot4,
+                PcrSlot::Slot5,
+                PcrSlot::Slot6,
+                PcrSlot::Slot7,
+            ],
+        )
+        .build()
+        .expect("Failed to create PcrSelectionList");
+
+    let key_attestation_certificate = ctx
+        .certify(attested_key, attesting_key.clone(), nonce.clone())
+        .expect("Failed to certify");
+    let key_attestation_certificate_encoded = match key_attestation_certificate.encode() {
+        Ok(key_attestation_encoded_certificate) => key_attestation_encoded_certificate,
+        _ => panic!("Failed to encode key attestation certificate"),
+    };
+    let key_attestation_value: Value = from_reader(&*key_attestation_certificate_encoded).unwrap();
+    // let (pub_area, _, _) = ctx.as_ref().read_public(attested_key);
+    assert!(key_attestation_value
+        .as_map()
+        .unwrap()
+        .clone()
+        .iter()
+        .all(|(str, val)| match str.as_text() {
+            Some("x5c") =>
+                if let Some(bytes) = val.as_bytes() {
+                    bytes.is_empty()
+                } else {
+                    false
+                },
+            Some("alg") =>
+                if let Some(int) = val.as_integer() {
+                    i32::try_from(int) == Ok(-65535)
+                } else {
+                    false
+                },
+            Some("sig") =>
+                if let Some(bytes) = val.as_bytes() {
+                    matches!(Signature::unmarshall(bytes), Ok(_))
+                } else {
+                    false
+                },
+            Some("pubArea") =>
+                if let Some(bytes) = val.as_bytes() {
+                    matches!(Public::unmarshall(bytes), Ok(_))
+                } else {
+                    false
+                },
+            Some("certInfo") =>
+                if let Some(bytes) = val.as_bytes() {
+                    matches!(Attest::unmarshall(bytes), Ok(_))
+                } else {
+                    false
+                },
+            _ => false,
+        }),);
+
+    let platform_attestation_certificate = ctx
+        .quote(attesting_key, nonce, selection_list)
+        .expect("Failed to quote");
+
+    let platform_attestation_certificate_encoded = match platform_attestation_certificate.encode() {
+        Ok(platform_attestation_encoded_certificate) => platform_attestation_encoded_certificate,
+        _ => panic!("Failed to encode platform attestation certificate"),
+    };
+    let platform_attestation_value: Value =
+        from_reader(&*platform_attestation_certificate_encoded).unwrap();
+    // let (pub_area, _, _) = ctx.as_ref().read_public(attesting_key);
+    assert!(platform_attestation_value
+        .as_map()
+        .unwrap()
+        .clone()
+        .iter()
+        .all(|(str, val)| match str.as_text() {
+            Some("x5c") =>
+                if let Some(bytes) = val.as_bytes() {
+                    bytes.is_empty()
+                } else {
+                    false
+                },
+            Some("alg") =>
+                if let Some(int) = val.as_integer() {
+                    i32::try_from(int) == Ok(-65535)
+                } else {
+                    false
+                },
+            Some("sig") =>
+                if let Some(bytes) = val.as_bytes() {
+                    matches!(Signature::unmarshall(bytes), Ok(_))
+                } else {
+                    false
+                },
+            Some("pubArea") =>
+                if let Some(bytes) = val.as_bytes() {
+                    matches!(Public::unmarshall(bytes), Ok(_))
+                } else {
+                    false
+                },
+            Some("certInfo") =>
+                if let Some(bytes) = val.as_bytes() {
+                    matches!(Attest::unmarshall(bytes), Ok(_))
+                } else {
+                    false
+                },
+            _ => false,
+        }),);
 }
 
 #[test]
