@@ -1,20 +1,24 @@
 // Copyright 2021 Contributors to the Parsec project.
 // SPDX-License-Identifier: Apache-2.0
-use super::{ObjectWrapper, TransientKeyContext};
+use super::{KeyMaterial, KeyParams, ObjectWrapper, TransientKeyContext};
 use crate::{
     abstraction::{ek, web_authn},
+    attributes::ObjectAttributesBuilder,
     constants::SessionType,
+    error::{Error, WrapperErrorKind},
     handles::{AuthHandle, KeyHandle, SessionHandle},
     interface_types::{
         algorithm::{AsymmetricAlgorithm, HashingAlgorithm},
         session_handles::{AuthSession, PolicySession},
     },
-    structures::{EncryptedSecret, IdObject, PcrSelectionList, SymmetricDefinition},
+    structures::{
+        Auth, EncryptedSecret, IdObject, PcrSelectionList, RsaScheme, SymmetricDefinition,
+    },
     traits::Marshall,
     utils::PublicKey,
     Result,
 };
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 #[derive(Debug)]
 /// Wrapper for the parameters needed by MakeCredential
@@ -42,7 +46,52 @@ pub struct MakeCredParams {
     pub attesting_key_pub: PublicKey,
 }
 
+struct AttestingKeyCustomization;
+impl super::KeyCustomization for AttestingKeyCustomization {
+    /// Alter the attributes used on key creation
+    fn attributes(&self, attributes_builder: ObjectAttributesBuilder) -> ObjectAttributesBuilder {
+        attributes_builder.with_restricted(true)
+    }
+}
+
 impl TransientKeyContext {
+    /// Create a new attesting key (AIK).
+    ///
+    /// The AIK is created as a descendant of the context root key, with the given parameters.
+    ///
+    /// If successful, the result contains the [KeyMaterial] of the key and a vector of
+    /// bytes forming the authentication value for said key.
+    ///
+    /// The following key attributes are always **set**: `fixed_tpm`, `fixed_parent`, `sensitive_data_origin`,
+    /// `user_with_auth`, `restricted`. See section 8.3 in the Structures spec for a detailed description
+    /// of these attributes.
+    ///
+    /// # Constraints
+    /// * `auth_size` must be at most 32
+    ///
+    /// # Errors
+    /// * if the authentication size is larger than 32 a `WrongParamSize` wrapper error is returned
+    /// * if the key params specify an encryption scheme, `InvalidParam` wrapper error is returned
+    pub fn create_aik(
+        &mut self,
+        key_params: KeyParams,
+        auth_size: usize,
+    ) -> Result<(KeyMaterial, Option<Auth>)> {
+        if matches!(
+            key_params,
+            KeyParams::Rsa {
+                scheme: RsaScheme::RsaEs,
+                ..
+            } | KeyParams::Rsa {
+                scheme: RsaScheme::Oaep(..),
+                ..
+            }
+        ) {
+            return Err(Error::local_error(WrapperErrorKind::InvalidParam));
+        }
+        self.create_key_internal(key_params, auth_size, AttestingKeyCustomization {})
+    }
+
     /// Get the data required to perform a MakeCredential
     ///
     /// # Parameters
@@ -212,8 +261,12 @@ impl TransientKeyContext {
         let object_handle = self.load_key(object.params, object.material, object.auth)?;
         let key_handle = self.load_key(key.params, key.material, key.auth)?;
 
-        let statement =
-            web_authn::TpmStatement::new(&mut self.context, object_handle, key_handle, nonce);
+        let statement = web_authn::TpmStatement::new(
+            &mut self.context,
+            object_handle,
+            key_handle,
+            nonce.try_into()?,
+        );
         self.context.flush_context(key_handle.into())?;
         self.context.flush_context(object_handle.into())?;
         statement

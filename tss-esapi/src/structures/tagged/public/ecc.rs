@@ -4,7 +4,7 @@ use crate::{
     interface_types::{algorithm::EccSchemeAlgorithm, ecc::EccCurve},
     structures::{EccScheme, KeyDerivationFunctionScheme, SymmetricDefinitionObject},
     tss2_esys::TPMS_ECC_PARMS,
-    Error, Result, WrapperErrorKind,
+    Error, Result, WrapperErrorKind, attributes::ObjectAttributes,
 };
 use log::error;
 use std::convert::{TryFrom, TryInto};
@@ -120,6 +120,20 @@ impl PublicEccParametersBuilder {
     ///           `false` indicates that it is going to be a non restricted key.
     pub const fn with_restricted(mut self, set: bool) -> Self {
         self.restricted = set;
+        self
+    }
+
+    /// Sets the [PublicEccParametersBuilder] flags indicating whether the key will be:
+    ///
+    /// * used for signing
+    /// * used for decryption
+    /// * restricted
+    ///
+    /// The values are obtained from the equivalent flags found in [ObjectAttributes].
+    pub fn with_object_attributes(mut self, object_attributes: &ObjectAttributes) -> Self {
+        self.is_signing_key = object_attributes.sign_encrypt();
+        self.is_decryption_key = object_attributes.decrypt();
+        self.restricted = object_attributes.restricted();
         self
     }
 

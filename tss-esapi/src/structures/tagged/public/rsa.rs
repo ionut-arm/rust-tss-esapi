@@ -1,6 +1,7 @@
 // Copyright 2021 Contributors to the Parsec project.
 // SPDX-License-Identifier: Apache-2.0
 use crate::{
+    attributes::ObjectAttributes,
     interface_types::{algorithm::RsaSchemeAlgorithm, key_bits::RsaKeyBits},
     structures::{RsaScheme, SymmetricDefinitionObject},
     tss2_esys::{TPMS_RSA_PARMS, UINT32},
@@ -125,6 +126,20 @@ impl PublicRsaParametersBuilder {
     ///           `false` indicates that it is going to be a non restricted key.
     pub const fn with_restricted(mut self, set: bool) -> Self {
         self.restricted = set;
+        self
+    }
+
+    /// Sets the [PublicRsaParametersBuilder] flags indicating whether the key will be:
+    ///
+    /// * used for signing
+    /// * used for decryption
+    /// * restricted
+    ///
+    /// The values are obtained from the equivalent flags found in [ObjectAttributes].
+    pub fn with_object_attributes(mut self, object_attributes: &ObjectAttributes) -> Self {
+        self.is_signing_key = object_attributes.sign_encrypt();
+        self.is_decryption_key = object_attributes.decrypt();
+        self.restricted = object_attributes.restricted();
         self
     }
 

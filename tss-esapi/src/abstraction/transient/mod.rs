@@ -18,9 +18,10 @@ use crate::{
         resource_handles::Hierarchy,
     },
     structures::{
-        Auth, CreateKeyResult, Data, Digest, EccPoint, EccScheme, Public, PublicBuilder,
-        PublicEccParametersBuilder, PublicKeyRsa, PublicRsaParametersBuilder, RsaExponent,
-        RsaScheme, Signature, SignatureScheme, SymmetricDefinitionObject, VerifiedTicket,
+        Auth, CreateKeyResult, Data, Digest, EccPoint, EccScheme, KeyDerivationFunctionScheme,
+        Public, PublicBuilder, PublicEccParametersBuilder, PublicKeyRsa,
+        PublicRsaParametersBuilder, RsaExponent, RsaScheme, Signature, SignatureScheme,
+        SymmetricDefinitionObject, VerifiedTicket,
     },
     tcti_ldr::TctiNameConf,
     tss2_esys::*,
@@ -37,6 +38,8 @@ use zeroize::Zeroize;
 mod key_attestation;
 
 pub use key_attestation::MakeCredParams;
+
+use super::{DefaultKeyImpl, KeyCustomization};
 
 /// Parameters for the kinds of keys supported by the context
 #[derive(Debug, Clone, Copy)]
@@ -143,6 +146,15 @@ impl TransientKeyContext {
         key_params: KeyParams,
         auth_size: usize,
     ) -> Result<(KeyMaterial, Option<Auth>)> {
+        self.create_key_internal(key_params, auth_size, DefaultKeyImpl {})
+    }
+
+    fn create_key_internal<KC: KeyCustomization>(
+        &mut self,
+        key_params: KeyParams,
+        auth_size: usize,
+        key_customization: KC,
+    ) -> Result<(KeyMaterial, Option<Auth>)> {
         if auth_size > 32 {
             return Err(Error::local_error(ErrorKind::WrongParamSize));
         }
@@ -161,7 +173,7 @@ impl TransientKeyContext {
             ..
         } = self.context.create(
             self.root_key_handle,
-            TransientKeyContext::get_public_from_params(key_params, None)?,
+            TransientKeyContext::get_public_from_params(key_params, None, &key_customization)?,
             key_auth.clone(),
             None,
             None,
@@ -183,7 +195,11 @@ impl TransientKeyContext {
         public_key: PublicKey,
         params: KeyParams,
     ) -> Result<KeyMaterial> {
-        let public = TransientKeyContext::get_public_from_params(params, Some(public_key.clone()))?;
+        let public = TransientKeyContext::get_public_from_params(
+            params,
+            Some(public_key.clone()),
+            &DefaultKeyImpl {},
+        )?;
         self.set_session_attrs()?;
         let key_handle = self
             .context
@@ -422,7 +438,11 @@ impl TransientKeyContext {
     ///
     /// # Errors
     /// * if the public key and the parameters don't match, `InconsistentParams` is returned
-    fn get_public_from_params(params: KeyParams, pub_key: Option<PublicKey>) -> Result<Public> {
+    fn get_public_from_params<KC: KeyCustomization>(
+        params: KeyParams,
+        pub_key: Option<PublicKey>,
+        key_customization: &KC,
+    ) -> Result<Public> {
         let decrypt_flag = matches!(
             params,
             KeyParams::Rsa {
@@ -433,14 +453,16 @@ impl TransientKeyContext {
                 ..
             }
         );
-        let object_attributes = ObjectAttributesBuilder::new()
+        let object_attributes_builder = ObjectAttributesBuilder::new()
             .with_fixed_tpm(true)
             .with_fixed_parent(true)
             .with_sensitive_data_origin(true)
             .with_user_with_auth(true)
             .with_decrypt(decrypt_flag)
             .with_sign_encrypt(true)
-            .with_restricted(false)
+            .with_restricted(false);
+        let object_attributes = key_customization
+            .attributes(object_attributes_builder)
             .build()?;
 
         let mut pub_builder = PublicBuilder::new()
@@ -475,9 +497,7 @@ impl TransientKeyContext {
                             })
                             .with_key_bits(size)
                             .with_exponent(pub_exponent)
-                            .with_is_signing_key(true)
-                            .with_is_decryption_key(decrypt_flag)
-                            .with_restricted(false)
+                            .with_object_attributes(&object_attributes)
                             .build()?,
                     )
                     .with_rsa_unique_identifier(unique);
@@ -495,13 +515,17 @@ impl TransientKeyContext {
                     .unwrap_or_default();
                 pub_builder = pub_builder
                     .with_ecc_parameters(
-                        PublicEccParametersBuilder::new_unrestricted_signing_key(scheme, curve)
+                        PublicEccParametersBuilder::new()
+                            .with_ecc_scheme(scheme)
+                            .with_curve(curve)
+                            .with_object_attributes(&object_attributes)
+                            .with_key_derivation_function_scheme(KeyDerivationFunctionScheme::Null)
                             .build()?,
                     )
                     .with_ecc_unique_identifier(unique);
             }
         }
-        pub_builder.build()
+        key_customization.template(pub_builder).build()
     }
 
     /// Load a key into a TPM given its [KeyMaterial]
@@ -513,7 +537,11 @@ impl TransientKeyContext {
         material: KeyMaterial,
         auth: Option<Auth>,
     ) -> Result<KeyHandle> {
-        let public = TransientKeyContext::get_public_from_params(params, Some(material.public))?;
+        let public = TransientKeyContext::get_public_from_params(
+            params,
+            Some(material.public),
+            &DefaultKeyImpl {},
+        )?;
 
         self.set_session_attrs()?;
         let key_handle = if material.private.is_empty() {
