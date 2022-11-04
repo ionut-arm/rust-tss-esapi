@@ -11,6 +11,7 @@ use crate::{
     WrapperErrorKind::InternalError,
 };
 use ciborium::{cbor, ser::into_writer};
+use serde_bytes::Bytes;
 use std::convert::TryInto;
 
 /// WebAuthn TPM Attestation Statement
@@ -95,13 +96,17 @@ impl TpmStatement {
         let cert_info = self.attestation.clone().marshall()?;
         let alg = get_alg_value(self.algorithm);
         let mut encoded_token = vec![];
+        let mut x509_chain = vec![];
+        for cert in &self.x509_chain {
+            x509_chain.push(Bytes::new(&cert[..]));
+        }
         match cbor!({
             //TODO put brakets around x5c and alg
-            "x5c" => self.x509_chain.clone(),
+            "x5c" => x509_chain,
             "alg" => alg,
-            "sig" => sig,
-            "pubArea" => pub_area,
-            "certInfo" => cert_info,
+            "sig" => &Bytes::new(&sig[..]),
+            "pubArea" => &Bytes::new(&pub_area[..]),
+            "certInfo" => &Bytes::new(&cert_info[..]),
         }) {
             Ok(value) => match into_writer(&value, &mut encoded_token) {
                 Ok(_) => Ok(encoded_token),
@@ -163,12 +168,16 @@ impl TpmPlatStmt {
         let cert_info = self.attestation.clone().marshall()?;
         let alg = get_alg_value(self.algorithm);
         let mut encoded_token = vec![];
+        let mut x509_chain = vec![];
+        for cert in &self.x509_chain {
+            x509_chain.push(Bytes::new(&cert[..]));
+        }
         match cbor!({
             //TODO put brakets around x5c and alg
-            "x5c" => self.x509_chain.clone(),
+            "x5c" => x509_chain,
             "alg" => alg,
-            "sig" => sig,
-            "certInfo" => cert_info,
+            "sig" => &Bytes::new(&sig[..]),
+            "certInfo" => &Bytes::new(&cert_info[..]),
         }) {
             Ok(value) => match into_writer(&value, &mut encoded_token) {
                 Ok(_) => Ok(encoded_token),
