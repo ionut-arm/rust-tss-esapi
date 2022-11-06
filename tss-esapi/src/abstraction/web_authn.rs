@@ -1,10 +1,8 @@
 use crate::{
-    constants::SessionType,
-    handles::{KeyHandle, SessionHandle},
-    interface_types::algorithm::HashingAlgorithm,
+    handles::KeyHandle,
+    interface_types::session_handles::AuthSession,
     structures::{
         Attest, Data, EccScheme, PcrSelectionList, Public, RsaScheme, Signature, SignatureScheme,
-        SymmetricDefinition,
     },
     traits::Marshall,
     Context, Error, Result,
@@ -38,44 +36,20 @@ impl TpmStatement {
         attesting_key: KeyHandle,
         nonce: Data,
     ) -> Result<TpmStatement> {
-        // Start authentication sessions for the two objects (attested and attesting keys)
-        let session_1 = context.start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Hmac,
-            SymmetricDefinition::AES_128_CFB,
-            HashingAlgorithm::Sha256,
-        )?;
-        let session_2 = context.start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Hmac,
-            SymmetricDefinition::AES_128_CFB,
-            HashingAlgorithm::Sha256,
-        )?;
-
         // Get the signing scheme of the attesting key
         let (attesting_key_public_area, _, _) = context.read_public(attesting_key)?;
         let signing_scheme = get_sig_scheme(&attesting_key_public_area)?;
         let ak_kid = get_kid(attesting_key_public_area)?;
 
         // Generate the TPM-native attestation token
-        let (attestation, signature) = context
-            .execute_with_sessions((session_1, session_2, None), |ctx| {
-                ctx.certify(attested_key.into(), attesting_key, nonce, signing_scheme)
-            })
-            .or_else(|e| {
-                context.flush_context(SessionHandle::from(session_1).into())?;
-                context.flush_context(SessionHandle::from(session_2).into())?;
-                Err(e)
-            })?;
-
-        // Clean up
-        context.flush_context(SessionHandle::from(session_1).into())?;
-        context.flush_context(SessionHandle::from(session_2).into())?;
-
+        let (attestation, signature) = context.execute_with_sessions(
+            (
+                Some(AuthSession::Password),
+                Some(AuthSession::Password),
+                None,
+            ),
+            |ctx| ctx.certify(attested_key.into(), attesting_key, nonce, signing_scheme),
+        )?;
         // Get public metadata of attested key (`pubArea` in WebAuthn spec)
         let (attested_key_public_area, _, _) = context.read_public(attested_key)?;
 
@@ -138,25 +112,12 @@ impl TpmPlatStmt {
         nonce: Vec<u8>,
         selection_list: PcrSelectionList,
     ) -> Result<TpmPlatStmt> {
-        let session = context.start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Hmac,
-            SymmetricDefinition::AES_128_CFB,
-            HashingAlgorithm::Sha256,
-        )?;
         let (key_public_area, _, _) = context.read_public(key)?;
         let signing_scheme = get_sig_scheme(&key_public_area)?;
         let (attestation, signature) = context
-            .execute_with_session(session, |ctx| {
+            .execute_with_session(Some(AuthSession::Password), |ctx| {
                 ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
-            })
-            .or_else(|e| {
-                context.flush_context(SessionHandle::from(session).into())?;
-                Err(e)
             })?;
-        context.flush_context(SessionHandle::from(session).into())?;
         Ok(TpmPlatStmt {
             attestation,
             signature,
