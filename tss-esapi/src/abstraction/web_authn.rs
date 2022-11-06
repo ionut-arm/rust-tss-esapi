@@ -11,8 +11,10 @@ use crate::{
     WrapperErrorKind::InternalError,
 };
 use ciborium::{cbor, ser::into_writer};
+use picky_asn1_x509::SubjectPublicKeyInfo;
 use serde_bytes::Bytes;
-use std::convert::TryInto;
+use sha2::{Digest, Sha256};
+use std::convert::{TryFrom, TryInto};
 
 /// WebAuthn TPM Attestation Statement
 ///
@@ -25,6 +27,7 @@ pub struct TpmStatement {
     public_area: Public,
     algorithm: SignatureScheme,
     x509_chain: Vec<Vec<u8>>,
+    ak_kid: Vec<u8>,
 }
 
 impl TpmStatement {
@@ -55,7 +58,8 @@ impl TpmStatement {
 
         // Get the signing scheme of the attesting key
         let (attesting_key_public_area, _, _) = context.read_public(attesting_key)?;
-        let signing_scheme = get_sig_scheme(attesting_key_public_area)?;
+        let signing_scheme = get_sig_scheme(&attesting_key_public_area)?;
+        let ak_kid = get_kid(attesting_key_public_area)?;
 
         // Generate the TPM-native attestation token
         let (attestation, signature) = context
@@ -81,6 +85,7 @@ impl TpmStatement {
             x509_chain: Vec::new(),
             algorithm: signing_scheme,
             public_area: attested_key_public_area,
+            ak_kid,
         })
     }
 
@@ -105,6 +110,7 @@ impl TpmStatement {
             "x5c" => x509_chain,
             "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
+            "kid" => &Bytes::new(&self.ak_kid[..]),
             "pubArea" => &Bytes::new(&pub_area[..]),
             "certInfo" => &Bytes::new(&cert_info[..]),
         }) {
@@ -141,7 +147,7 @@ impl TpmPlatStmt {
             HashingAlgorithm::Sha256,
         )?;
         let (key_public_area, _, _) = context.read_public(key)?;
-        let signing_scheme = get_sig_scheme(key_public_area)?;
+        let signing_scheme = get_sig_scheme(&key_public_area)?;
         let (attestation, signature) = context
             .execute_with_session(session, |ctx| {
                 ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
@@ -188,7 +194,7 @@ impl TpmPlatStmt {
     }
 }
 
-fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
+fn get_sig_scheme(public_area: &Public) -> Result<SignatureScheme> {
     match public_area {
         Public::Rsa { parameters, .. } => match parameters.rsa_scheme() {
             RsaScheme::RsaSsa(hash_scheme) => Ok(SignatureScheme::RsaSsa { hash_scheme }),
@@ -201,6 +207,19 @@ fn get_sig_scheme(public_area: Public) -> Result<SignatureScheme> {
         },
         _ => Err(Error::local_error(InternalError)),
     }
+}
+
+fn get_kid(public_area: Public) -> Result<Vec<u8>> {
+    let subject_public_key_info = SubjectPublicKeyInfo::try_from(public_area)?;
+    let encoded_key = picky_asn1_der::to_vec(&subject_public_key_info)
+        .map_err(|_| Error::WrapperError(crate::WrapperErrorKind::InvalidParam))?;
+    // Create key ID
+    let mut hasher = Sha256::new();
+    hasher.update(&encoded_key);
+    // Mark ID as "random" (starting with 0x01 tag)
+    let mut key_id = vec![0x01_u8];
+    key_id.append(&mut hasher.finalize().to_vec());
+    Ok(key_id)
 }
 
 fn get_alg_value(algorithm: SignatureScheme) -> i32 {
