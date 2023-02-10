@@ -72,13 +72,24 @@ fn list() {
         .map(|(public, _)| public.nv_index())
         .any(|x| x == nv_index));
 
-    let owner_nv_index_handle = write_nv_index(&mut context, nv_index);
+    let initial_owner_nv_index_handle = write_nv_index(&mut context, nv_index);
 
     assert!(nv::list(&mut context)
         .unwrap()
         .iter()
         .map(|(public, _)| public.nv_index())
         .any(|x| x == nv_index));
+
+    // Need to get the ESYS handle again, as it was closed by nv::list above.
+    // 1. If this fails with a TssError something is seriously wrong but it
+    // does not hurt to to try to clean the NV space up using the initial handle.
+    //
+    // 2. If this fails with a WrapperError then there is only an inconsistency
+    // in how the handle should be closed and cleaning up the NV space should
+    // using the initial handle should still be possible.
+    let owner_nv_index_handle = context
+        .tr_from_tpm_public(nv_index.into())
+        .map_or_else(|_| initial_owner_nv_index_handle, NvIndexHandle::from);
 
     context
         .nv_undefine_space(Provision::Owner, owner_nv_index_handle)
@@ -91,10 +102,21 @@ fn read_full() {
 
     let nv_index = NvIndexTpmHandle::new(0x01500015).unwrap();
 
-    let owner_nv_index_handle = write_nv_index(&mut context, nv_index);
+    let initial_owner_nv_index_handle = write_nv_index(&mut context, nv_index);
 
     // Now read it back
     let read_result = nv::read_full(&mut context, NvAuth::Owner, nv_index);
+
+    // Need to get the ESYS handle again, as it was closed by nv::list above.
+    // 1. If this fails with a TssError something is seriously wrong but it
+    // does not hurt to to try to clean the NV space up using the initial handle.
+    //
+    // 2. If this fails with a WrapperError then there is only an inconsistency
+    // in how the handle should be closed and cleaning up the NV space should
+    // using the initial handle should still be possible.
+    let owner_nv_index_handle = context
+        .tr_from_tpm_public(nv_index.into())
+        .map_or_else(|_| initial_owner_nv_index_handle, NvIndexHandle::from);
 
     context
         .nv_undefine_space(Provision::Owner, owner_nv_index_handle)
