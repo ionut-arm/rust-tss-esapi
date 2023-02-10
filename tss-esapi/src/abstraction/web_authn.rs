@@ -103,6 +103,7 @@ pub struct TpmPlatStmt {
     signature: Signature,
     algorithm: SignatureScheme,
     x509_chain: Vec<Vec<u8>>,
+    ak_kid: Vec<u8>,
 }
 
 impl TpmPlatStmt {
@@ -114,6 +115,8 @@ impl TpmPlatStmt {
     ) -> Result<TpmPlatStmt> {
         let (key_public_area, _, _) = context.read_public(key)?;
         let signing_scheme = get_sig_scheme(&key_public_area)?;
+        let ak_kid = get_kid(key_public_area)?;
+
         let (attestation, signature) = context
             .execute_with_session(Some(AuthSession::Password), |ctx| {
                 ctx.quote(key, nonce.try_into()?, signing_scheme, selection_list)
@@ -123,6 +126,7 @@ impl TpmPlatStmt {
             signature,
             x509_chain: Vec::new(),
             algorithm: signing_scheme,
+            ak_kid,
         })
     }
 
@@ -144,6 +148,7 @@ impl TpmPlatStmt {
             "x5c" => x509_chain,
             "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
+            "kid" => &Bytes::new(&self.ak_kid[..]),
             "certInfo" => &Bytes::new(&cert_info[..]),
         }) {
             Ok(value) => match into_writer(&value, &mut encoded_token) {
