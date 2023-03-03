@@ -24,7 +24,6 @@ pub struct TpmStatement {
     signature: Signature,
     public_area: Public,
     algorithm: SignatureScheme,
-    x509_chain: Vec<Vec<u8>>,
     ak_kid: Vec<u8>,
 }
 
@@ -56,16 +55,10 @@ impl TpmStatement {
         Ok(TpmStatement {
             attestation,
             signature,
-            x509_chain: Vec::new(),
             algorithm: signing_scheme,
             public_area: attested_key_public_area,
             ak_kid,
         })
-    }
-
-    /// Append a list of x509 certificates for the attesting key
-    pub fn add_certificates(&mut self, mut certificates: Vec<Vec<u8>>) {
-        self.x509_chain.append(&mut certificates);
     }
 
     /// Encodes the token in the format defined by the spec
@@ -75,13 +68,8 @@ impl TpmStatement {
         let cert_info = self.attestation.clone().marshall()?;
         let alg = get_alg_value(self.algorithm);
         let mut encoded_token = vec![];
-        let mut x509_chain = vec![];
-        for cert in &self.x509_chain {
-            x509_chain.push(Bytes::new(&cert[..]));
-        }
         match cbor!({
-            //TODO put brakets around x5c and alg
-            "x5c" => x509_chain,
+            "tpmVer" => "2.0",
             "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
@@ -102,7 +90,6 @@ pub struct TpmPlatStmt {
     attestation: Attest,
     signature: Signature,
     algorithm: SignatureScheme,
-    x509_chain: Vec<Vec<u8>>,
     ak_kid: Vec<u8>,
 }
 
@@ -124,14 +111,9 @@ impl TpmPlatStmt {
         Ok(TpmPlatStmt {
             attestation,
             signature,
-            x509_chain: Vec::new(),
             algorithm: signing_scheme,
             ak_kid,
         })
-    }
-
-    pub fn add_certificates(&mut self, mut certificates: Vec<Vec<u8>>) {
-        self.x509_chain.append(&mut certificates);
     }
 
     pub fn encode(&self) -> Result<Vec<u8>> {
@@ -139,13 +121,8 @@ impl TpmPlatStmt {
         let cert_info = self.attestation.clone().marshall()?;
         let alg = get_alg_value(self.algorithm);
         let mut encoded_token = vec![];
-        let mut x509_chain = vec![];
-        for cert in &self.x509_chain {
-            x509_chain.push(Bytes::new(&cert[..]));
-        }
         match cbor!({
-            //TODO put brakets around x5c and alg
-            "x5c" => x509_chain,
+            "tpmVer" => "2.0",
             "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
