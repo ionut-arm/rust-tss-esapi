@@ -8,7 +8,7 @@ use crate::{
     Context, Error, Result,
     WrapperErrorKind::InternalError,
 };
-use ciborium::{cbor, ser::into_writer};
+use ciborium::{cbor, value::Value};
 use picky_asn1_x509::SubjectPublicKeyInfo;
 use serde_bytes::Bytes;
 use sha2::{Digest, Sha256};
@@ -62,26 +62,20 @@ impl TpmStatement {
     }
 
     /// Encodes the token in the format defined by the spec
-    pub fn encode(&self) -> Result<Vec<u8>> {
+    pub fn encode(&self) -> Result<Value> {
         let sig = self.signature.clone().marshall()?;
         let pub_area = self.public_area.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
         let alg = get_alg_value(self.algorithm);
-        let mut encoded_token = vec![];
-        match cbor!({
+        cbor!({
             "tpmVer" => "2.0",
             "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
             "pubArea" => &Bytes::new(&pub_area[..]),
             "certInfo" => &Bytes::new(&cert_info[..]),
-        }) {
-            Ok(value) => match into_writer(&value, &mut encoded_token) {
-                Ok(_) => Ok(encoded_token),
-                Err(_) => Err(Error::local_error(InternalError)),
-            },
-            Err(_) => Err(Error::local_error(InternalError)),
-        }
+        })
+        .or(Err(Error::local_error(InternalError)))
     }
 }
 
@@ -116,24 +110,18 @@ impl TpmPlatStmt {
         })
     }
 
-    pub fn encode(&self) -> Result<Vec<u8>> {
+    pub fn encode(&self) -> Result<Value> {
         let sig = self.signature.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
         let alg = get_alg_value(self.algorithm);
-        let mut encoded_token = vec![];
-        match cbor!({
+        cbor!({
             "tpmVer" => "2.0",
             "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
             "certInfo" => &Bytes::new(&cert_info[..]),
-        }) {
-            Ok(value) => match into_writer(&value, &mut encoded_token) {
-                Ok(_) => Ok(encoded_token),
-                Err(_) => Err(Error::local_error(InternalError)),
-            },
-            Err(_) => Err(Error::local_error(InternalError)),
-        }
+        })
+        .or(Err(Error::local_error(InternalError)))
     }
 }
 

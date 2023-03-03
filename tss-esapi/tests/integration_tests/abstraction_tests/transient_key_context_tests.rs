@@ -729,12 +729,10 @@ fn certify_and_quote() {
     let key_attestation_certificate = ctx
         .certify(attested_key, attesting_key.clone(), nonce.clone())
         .expect("Failed to certify");
-    let key_attestation_certificate_encoded = match key_attestation_certificate.encode() {
+    let key_attestation_value = match key_attestation_certificate.encode() {
         Ok(key_attestation_encoded_certificate) => key_attestation_encoded_certificate,
         _ => panic!("Failed to encode key attestation certificate"),
     };
-    let key_attestation_value: Value = from_reader(&*key_attestation_certificate_encoded).unwrap();
-    // let (pub_area, _, _) = ctx.as_ref().read_public(attested_key);
     assert!(key_attestation_value
         .as_map()
         .unwrap()
@@ -778,13 +776,10 @@ fn certify_and_quote() {
         .quote(attesting_key, nonce, selection_list)
         .expect("Failed to quote");
 
-    let platform_attestation_certificate_encoded = match platform_attestation_certificate.encode() {
+    let platform_attestation_value = match platform_attestation_certificate.encode() {
         Ok(platform_attestation_encoded_certificate) => platform_attestation_encoded_certificate,
         _ => panic!("Failed to encode platform attestation certificate"),
     };
-    let platform_attestation_value: Value =
-        from_reader(&*platform_attestation_certificate_encoded).unwrap();
-    // let (pub_area, _, _) = ctx.as_ref().read_public(attesting_key);
     assert!(platform_attestation_value
         .as_map()
         .unwrap()
