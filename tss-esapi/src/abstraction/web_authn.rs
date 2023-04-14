@@ -23,7 +23,6 @@ pub struct TpmStatement {
     attestation: Attest,
     signature: Signature,
     public_area: Public,
-    algorithm: SignatureScheme,
     ak_kid: Vec<u8>,
 }
 
@@ -55,7 +54,6 @@ impl TpmStatement {
         Ok(TpmStatement {
             attestation,
             signature,
-            algorithm: signing_scheme,
             public_area: attested_key_public_area,
             ak_kid,
         })
@@ -66,10 +64,8 @@ impl TpmStatement {
         let sig = self.signature.clone().marshall()?;
         let pub_area = self.public_area.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
-        let alg = get_alg_value(self.algorithm);
         cbor!({
             "tpmVer" => "2.0",
-            "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
             "pubArea" => &Bytes::new(&pub_area[..]),
@@ -83,7 +79,6 @@ impl TpmStatement {
 pub struct TpmPlatStmt {
     attestation: Attest,
     signature: Signature,
-    algorithm: SignatureScheme,
     ak_kid: Vec<u8>,
 }
 
@@ -105,7 +100,6 @@ impl TpmPlatStmt {
         Ok(TpmPlatStmt {
             attestation,
             signature,
-            algorithm: signing_scheme,
             ak_kid,
         })
     }
@@ -113,10 +107,8 @@ impl TpmPlatStmt {
     pub fn encode(&self) -> Result<Value> {
         let sig = self.signature.clone().marshall()?;
         let cert_info = self.attestation.clone().marshall()?;
-        let alg = get_alg_value(self.algorithm);
         cbor!({
             "tpmVer" => "2.0",
-            "alg" => alg,
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
             "certInfo" => &Bytes::new(&cert_info[..]),
@@ -151,11 +143,4 @@ fn get_kid(public_area: Public) -> Result<Vec<u8>> {
     let mut key_id = vec![0x01_u8];
     key_id.append(&mut hasher.finalize().to_vec());
     Ok(key_id)
-}
-
-fn get_alg_value(algorithm: SignatureScheme) -> i32 {
-    match algorithm {
-        SignatureScheme::RsaSsa { .. } => -65535,
-        _ => -1,
-    }
 }
