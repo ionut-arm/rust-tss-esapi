@@ -139,6 +139,7 @@ fn get_kid(public_area: Public) -> Result<Vec<u8>> {
     // Create key ID
     let mut hasher = Sha256::new();
     hasher.update(&encoded_key);
+    hasher.update(b"parsec-aik");
     // Mark ID as "random" (starting with 0x01 tag)
     let mut key_id = vec![0x01_u8];
     key_id.append(&mut hasher.finalize().to_vec());
