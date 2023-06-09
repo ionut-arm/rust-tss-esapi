@@ -106,12 +106,12 @@ impl TpmPlatStmt {
 
     pub fn encode(&self) -> Result<Value> {
         let sig = self.signature.clone().marshall()?;
-        let cert_info = self.attestation.clone().marshall()?;
+        let attest_info = self.attestation.clone().marshall()?;
         cbor!({
             "tpmVer" => "2.0",
             "sig" => &Bytes::new(&sig[..]),
             "kid" => &Bytes::new(&self.ak_kid[..]),
-            "certInfo" => &Bytes::new(&cert_info[..]),
+            "attestInfo" => &Bytes::new(&attest_info[..]),
         })
         .or(Err(Error::local_error(InternalError)))
     }
